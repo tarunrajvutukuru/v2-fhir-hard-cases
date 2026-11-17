@@ -41,6 +41,11 @@ A new case needs:
 - for embedded attachments, the original binary in `attachments/` and its
   SHA-256 in `case.yaml` and in a `<file>.sha256` file.
 
+A multi-message case replaces `message.hl7` with one CR-separated file per
+message, listed under `messages` in arrival order, and replaces the Bundles in
+`expected/` with `accepted_end_states` in `case.yaml`: for each accepted
+reconciliation rule, the Encounters that must exist after each message.
+
 A case may be submitted with `status: todo` and no accepted answers yet, so that
 others can propose answers.
 
