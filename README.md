@@ -47,6 +47,8 @@ Each case declares which hop it is about.
 **A pass states what it covered.** A pass names the Bundle including its
 entries, the pinned package set, and the SNOMED CT edition. Two tools can both
 say "pass" after validating different things.
+A multi-message case with no expected Bundles declares `scope: end-states`:
+its pass covers the Encounters after each message, not a Bundle.
 
 **Attachments ship a SHA-256.** Embedded attachments come with the SHA-256 of
 the original bytes, so "same bytes" can be checked rather than assumed.
