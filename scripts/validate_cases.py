@@ -9,10 +9,14 @@ Checks, per case:
   - expected answers are JSON Bundles, and every expected/*.json is referenced;
   - SHA-256 values match the attachment files, their .sha256 sidecars, and the
     Base64 data embedded in message.hl7;
-  - message.hl7 uses CR segment separators.
+  - message.hl7 uses CR segment separators;
+  - for multi-message cases: every listed message exists, uses CR separators
+    and carries the declared MSH-9, arrival_order runs 1, 2, 3, ..., and every
+    accepted end state declares its states in order and ends after the last
+    message.
 
-It does NOT run the FHIR validator. Cases with status 'todo' may have no
-message.hl7 and no accepted answers.
+It does NOT run the FHIR validator or any converter. Cases with status 'todo'
+may have no message.hl7 and no accepted answers.
 
 Usage: python scripts/validate_cases.py [CASE_DIR ...]
 """
@@ -55,22 +59,22 @@ def sha256_hex(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def check_message(path, errors):
+def check_message(path, errors, name="message.hl7"):
     """Check CR separators and segment ids. Return the list of segments, or None."""
     raw = path.read_bytes()
     if not raw:
-        errors.append("message.hl7 is empty")
+        errors.append(f"{name} is empty")
         return None
     if not raw.startswith(b"MSH") or len(raw) < 8:
-        errors.append("message.hl7 does not start with an MSH segment")
+        errors.append(f"{name} does not start with an MSH segment")
         return None
     if b"\n" in raw:
-        errors.append("message.hl7 contains LF; segments must be separated by CR only")
+        errors.append(f"{name} contains LF; segments must be separated by CR only")
         return None
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
-        errors.append(f"message.hl7 is not valid UTF-8: {exc}")
+        errors.append(f"{name} is not valid UTF-8: {exc}")
         return None
     segments = text.split("\r")
     if segments[-1] == "":
@@ -78,11 +82,11 @@ def check_message(path, errors):
     field_sep = text[3]
     for number, segment in enumerate(segments, start=1):
         if not segment:
-            errors.append(f"message.hl7: empty segment at position {number}")
+            errors.append(f"{name}: empty segment at position {number}")
             continue
         seg_id = segment.split(field_sep, 1)[0]
         if not SEGMENT_ID.match(seg_id):
-            errors.append(f"message.hl7: segment {number} has an invalid segment id {seg_id!r}")
+            errors.append(f"{name}: segment {number} has an invalid segment id {seg_id!r}")
     return segments
 
 
@@ -127,6 +131,52 @@ def check_embedded(segments, attachment, expected_sha, errors):
         errors.append(f"attachment {attachment['file']}: decoded {label} does not match sha256 {expected_sha}")
 
 
+def check_messages(case_dir, manifest, errors):
+    """Checks for a multi-message case: files, arrival order, MSH-9, end states."""
+    entries = manifest["messages"]
+    seen_files = set()
+    for position, entry in enumerate(entries, start=1):
+        rel = entry["file"]
+        if entry["arrival_order"] != position:
+            errors.append(f"messages: {rel} has arrival_order {entry['arrival_order']}, expected {position}; list messages in arrival order")
+        if rel in seen_files:
+            errors.append(f"messages: {rel} is listed more than once")
+            continue
+        seen_files.add(rel)
+        path = case_dir / rel
+        if not path.is_file():
+            errors.append(f"message {rel} does not exist")
+            continue
+        segments = check_message(path, errors, name=rel)
+        if segments is None:
+            continue
+        msh9 = get_field(segments, "MSH", 9, 1)
+        if msh9 != entry["message_type"]:
+            errors.append(f"{rel}: MSH-9 is {msh9!r}, case.yaml says {entry['message_type']!r}")
+        elif msh9.split(segments[0][4])[1:2] != [entry["trigger_event"]]:
+            errors.append(f"{rel}: MSH-9.2 does not match trigger_event {entry['trigger_event']!r}")
+
+    if (case_dir / "message.hl7").is_file():
+        errors.append("multi-message case also has message.hl7; use the files listed under messages")
+    if manifest.get("attachments"):
+        errors.append("attachments are not yet supported in multi-message cases")
+
+    last = len(entries)
+    names = set()
+    for end_state in manifest.get("accepted_end_states", []):
+        name = end_state["name"]
+        if name in names:
+            errors.append(f"accepted end state {name!r} is listed more than once")
+        names.add(name)
+        steps = [state["after_message"] for state in end_state["states"]]
+        if steps != sorted(set(steps)):
+            errors.append(f"accepted end state {name!r}: states must be in increasing after_message order, without repeats")
+        if any(step > last for step in steps):
+            errors.append(f"accepted end state {name!r}: after_message beyond the {last} listed messages")
+        if steps and steps[-1] != last:
+            errors.append(f"accepted end state {name!r}: no state declared after the last message ({last})")
+
+
 def check_case(case_dir, validator):
     errors = []
     manifest_path = case_dir / "case.yaml"
@@ -150,7 +200,9 @@ def check_case(case_dir, validator):
 
     segments = None
     message_path = case_dir / "message.hl7"
-    if message_path.is_file():
+    if "messages" in manifest:
+        check_messages(case_dir, manifest, errors)
+    elif message_path.is_file():
         segments = check_message(message_path, errors)
     elif status != "todo":
         errors.append("missing message.hl7")

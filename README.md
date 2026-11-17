@@ -24,6 +24,15 @@ Each case lives in its own folder, `cases/<NNN>-<short-slug>/`:
 A case with `status: todo` is work in progress and may have no message or no
 accepted answers yet.
 
+Some errors only show across messages: an A08 that arrives before its A01, a
+cancel that arrives before the event it cancels. A **multi-message case** has
+no `message.hl7`. It lists its message files under `messages` in arrival
+order, which is declared rather than taken from MSH-7 or EVN-2, and replaces
+`accepted_answers` with `accepted_end_states`. Each end state declares the
+reconciliation rule it follows and which Encounters must exist after each
+message, since two defensible rules can agree at the end and differ along the
+way.
+
 ## Key principles
 
 **More than one accepted answer.** A case can have several accepted answers,

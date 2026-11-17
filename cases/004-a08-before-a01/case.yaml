@@ -1,0 +1,101 @@
+id: 004-a08-before-a01
+status: todo
+title: A08 arrives before the A01 it updates
+summary: >-
+  Two messages for the same visit (VN2001) arrive out of order. The A08
+  (MSH-7 10:20, EVN-2 10:18) adds the attending in PV1-7 and is received
+  first. The A01 it updates (MSH-7 10:00, EVN-2 09:58) has no attending and is
+  received second. Each message converts and validates on its own; the error
+  is only visible in the end state. A converter that writes every message as a
+  full PUT on the visit number lets the older A01 replace the newer A08 and
+  drops the attending, even though in v2 an empty PV1-7 means "no change", not
+  "delete". A converter that creates on A01 and updates on A08 either rejects
+  the A08 or ends up with two Encounters for one visit.
+notes: >-
+  First multi-message case. It uses `messages` and `accepted_end_states`
+  instead of `message.hl7` and `accepted_answers`. Both accepted end states
+  agree after the second message and differ only after the first, which is why
+  the expected state is declared after each message and not only at the end.
+  Under hold-until-a01 the empty state after message 1 cannot tell a held A08
+  from a discarded one; the state after message 2 can, because it requires the
+  attending that only the A08 carries.
+
+v2_version: "2.5"
+hop: v2-to-enterprise
+transaction: ADT feed, no IHE profile claimed
+actors:
+  sender: PAS (NORTHSIDE)
+  receiver: GW (RCVFAC)
+initiates_workflow: false
+
+messages:                       # listed in arrival order, which is not MSH-7 or EVN-2 order
+  - file: message-1.hl7
+    arrival_order: 1
+    message_type: ADT^A08^ADT_A01
+    trigger_event: A08
+  - file: message-2.hl7
+    arrival_order: 2
+    message_type: ADT^A01^ADT_A01
+    trigger_event: A01
+
+accepted_end_states:
+  - name: hold-until-a01
+    reconciliation_rule: >-
+      An A08 for a visit number the receiver has not seen is held, not applied.
+      When the A01 for that visit arrives, both are applied in EVN-2 order
+      (MSH-7 if EVN-2 is empty). A held A08 that never meets its A01 is out of
+      scope for this case.
+    rationale: >-
+      The receiver never shows an Encounter built from an update alone. Cost:
+      the visit is invisible until the A01 arrives.
+    exchange_pattern: receiver keeps a short hold queue per visit number
+    states:
+      - after_message: 1
+        encounters: []
+      - after_message: 2
+        encounters:
+          - identifier: {assigner: NORTHSIDE, type: VN, value: VN2001}
+            status: in-progress
+            class: IMP
+            period_start: "2026-11-02T09:45:00-05:00"   # PV1-44
+            attending: "1234"                           # PV1-7 of the A08
+  - name: placeholder-from-a08
+    reconciliation_rule: >-
+      An A08 for an unknown visit number creates the Encounter from the A08's
+      content. A later message for the same visit is merged field by field:
+      a field is only overwritten by a message with a later EVN-2 (MSH-7 if
+      EVN-2 is empty), and an empty field never clears a value. The
+      explicit v2 delete value ("") is not exercised by this case.
+    rationale: >-
+      The visit is visible as soon as anything about it arrives. Cost: for a
+      short time the Encounter exists without the admit having been received.
+    exchange_pattern: receiver upserts on visit number with a field-level merge
+    states:
+      - after_message: 1
+        encounters:
+          - identifier: {assigner: NORTHSIDE, type: VN, value: VN2001}
+            status: in-progress
+            class: IMP
+            period_start: "2026-11-02T09:45:00-05:00"
+            attending: "1234"
+      - after_message: 2
+        encounters:
+          - identifier: {assigner: NORTHSIDE, type: VN, value: VN2001}
+            status: in-progress
+            class: IMP
+            period_start: "2026-11-02T09:45:00-05:00"
+            attending: "1234"
+
+validation:
+  fhir_version: "4.0.1"
+  packages:
+    - {name: hl7.fhir.r4.core, version: 4.0.1}
+  snomed_edition: "900000000000207008"   # International; the messages carry no SNOMED CT codes
+  scope: bundle-and-entries
+
+accepted_answers: []            # per-message Bundles are optional for this case
+declared_losses: []
+attachments: []
+
+provenance: synthetic
+contributed_by: Tarun Raj Vutukuru

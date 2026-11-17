@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/techemv-srl/v2-fhir-hard-cases/schema/case.schema.json",
   "title": "HL7 v2 to FHIR hard case manifest (case.yaml)",
-  "description": "Manifest of one case under cases/<NNN>-<short-slug>/. A case with status 'todo' may omit most fields and may have no accepted answers; a case with status 'ready' must be complete.",
+  "description": "Manifest of one case under cases/<NNN>-<short-slug>/. A case with status 'todo' may omit most fields and may have no accepted answers; a case with status 'ready' must be complete. A single-message case has message.hl7, message_type and trigger_event. A multi-message case lists its messages under 'messages' and states what must be true after each one under 'accepted_end_states'.",
   "type": "object",
   "additionalProperties": false,
   "required": ["id", "status", "title", "contributed_by"],
@@ -39,6 +39,22 @@
       "description": "Trigger event as declared in MSH-9.2. If other fields disagree (e.g. EVN-1), say so in the summary.",
       "type": "string",
       "pattern": "^[A-Z0-9]{3}$"
+    },
+    "messages": {
+      "description": "Multi-message cases only, in place of message.hl7, message_type and trigger_event. One entry per message file, listed in arrival order. Arrival order is declared, not derived from MSH-7 or EVN-2, because the gap between them is often what the case tests.",
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "arrival_order", "message_type", "trigger_event"],
+        "properties": {
+          "file": {"type": "string", "pattern": "^[A-Za-z0-9._-]+\\.hl7$"},
+          "arrival_order": {"description": "1-based. Entries are listed as 1, 2, 3, ...", "type": "integer", "minimum": 1},
+          "message_type": {"description": "MSH-9 exactly as sent.", "type": "string", "pattern": "^[A-Z0-9]{3}(\\^[A-Z0-9]{3}(\\^[A-Z0-9_]+)?)?$"},
+          "trigger_event": {"description": "Trigger event as declared in MSH-9.2.", "type": "string", "pattern": "^[A-Z0-9]{3}$"}
+        }
+      }
     },
     "hop": {
       "description": "'v2-to-enterprise' should be lossless and gets a strict diff. 'enterprise-to-repository' is lossy by design.",
@@ -91,6 +107,38 @@
         "scope": {
           "description": "What was validated. 'bundle-and-entries': the Bundle including all its entries.",
           "enum": ["bundle-and-entries"]
+        }
+      }
+    },
+    "accepted_end_states": {
+      "description": "Multi-message cases only. One entry per accepted reconciliation, each with the rule it follows and the expected state after each message. Two accepted end states can agree at the end and differ along the way, so the state is declared after every message, not only the last.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reconciliation_rule", "rationale", "exchange_pattern", "states"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
+          "reconciliation_rule": {"description": "Declared input, like the transaction: how the converter is allowed to reconcile the messages.", "type": "string", "minLength": 1},
+          "rationale": {"type": "string", "minLength": 1},
+          "exchange_pattern": {"type": "string", "minLength": 1},
+          "states": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["after_message", "encounters"],
+              "properties": {
+                "after_message": {"description": "arrival_order of the message after which this state must hold.", "type": "integer", "minimum": 1},
+                "encounters": {
+                  "description": "Every Encounter that must exist for the case's visits at that point. An empty list means none.",
+                  "type": "array",
+                  "items": {"$ref": "#/$defs/encounter_state"}
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -155,17 +203,69 @@
       "minLength": 1
     }
   },
+  "$defs": {
+    "visit_identifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "assigner": {"description": "Assigning authority as sent, e.g. CX.4.1.", "type": "string", "minLength": 1},
+        "type": {"description": "Identifier type code as sent, e.g. 'VN'.", "type": "string", "minLength": 1},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "encounter_state": {
+      "description": "What must be true of one Encounter. Fields left out are not checked.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identifier", "status"],
+      "properties": {
+        "identifier": {"$ref": "#/$defs/visit_identifier"},
+        "linked_identifiers": {
+          "description": "Other visit identifiers, e.g. from a second sender, that must resolve to this same Encounter.",
+          "type": "array",
+          "items": {"$ref": "#/$defs/visit_identifier"}
+        },
+        "status": {"enum": ["planned", "arrived", "triaged", "in-progress", "onleave", "finished", "cancelled", "entered-in-error", "unknown"]},
+        "class": {"description": "v3 ActCode, e.g. 'IMP'.", "type": "string", "minLength": 1},
+        "period_start": {"description": "FHIR dateTime with offset. Quote it in YAML.", "type": "string", "minLength": 1},
+        "period_end": {"description": "FHIR dateTime with offset. Quote it in YAML.", "type": "string", "minLength": 1},
+        "attending": {"description": "Attending practitioner identifier as sent, e.g. XCN.1.", "type": "string", "minLength": 1}
+      }
+    }
+  },
   "allOf": [
     {
       "if": {"properties": {"status": {"const": "ready"}}, "required": ["status"]},
       "then": {
         "required": [
-          "summary", "v2_version", "message_type", "trigger_event", "hop",
+          "summary", "v2_version", "hop",
           "transaction", "actors", "initiates_workflow", "validation",
           "accepted_answers", "declared_losses", "attachments", "provenance"
-        ],
+        ]
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "ready"}}, "required": ["status"], "not": {"required": ["messages"]}},
+      "then": {
+        "required": ["message_type", "trigger_event"],
         "properties": {"accepted_answers": {"minItems": 1}}
       }
+    },
+    {
+      "if": {"properties": {"status": {"const": "ready"}}, "required": ["status", "messages"]},
+      "then": {
+        "required": ["accepted_end_states"],
+        "properties": {"accepted_end_states": {"minItems": 1}}
+      }
+    },
+    {
+      "if": {"required": ["messages"]},
+      "then": {"properties": {"message_type": false, "trigger_event": false}}
+    },
+    {
+      "if": {"required": ["accepted_end_states"]},
+      "then": {"required": ["messages"]}
     },
     {
       "if": {"properties": {"provenance": {"const": "scrubbed"}}, "required": ["provenance"]},
