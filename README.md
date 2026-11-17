@@ -61,6 +61,7 @@ cases/
   <NNN>-<short-slug>/
     case.yaml           manifest
     message.hl7         source v2 message, CR-separated
+    message-<n>.hl7     multi-message cases: one CR-separated file per message
     expected/           one FHIR JSON Bundle per accepted answer
     attachments/        original binaries and their .sha256 files
 schema/

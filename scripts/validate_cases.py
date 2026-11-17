@@ -12,8 +12,7 @@ Checks, per case:
   - message.hl7 uses CR segment separators;
   - for multi-message cases: every listed message exists, uses CR separators
     and carries the declared MSH-9, arrival_order runs 1, 2, 3, ..., and every
-    accepted end state declares its states in order and ends after the last
-    message.
+    accepted end state declares a state after every message, in order.
 
 It does NOT run the FHIR validator or any converter. Cases with status 'todo'
 may have no message.hl7 and no accepted answers.
@@ -169,12 +168,8 @@ def check_messages(case_dir, manifest, errors):
             errors.append(f"accepted end state {name!r} is listed more than once")
         names.add(name)
         steps = [state["after_message"] for state in end_state["states"]]
-        if steps != sorted(set(steps)):
-            errors.append(f"accepted end state {name!r}: states must be in increasing after_message order, without repeats")
-        if any(step > last for step in steps):
-            errors.append(f"accepted end state {name!r}: after_message beyond the {last} listed messages")
-        if steps and steps[-1] != last:
-            errors.append(f"accepted end state {name!r}: no state declared after the last message ({last})")
+        if steps != list(range(1, last + 1)):
+            errors.append(f"accepted end state {name!r}: states must be declared after every message, in order (after_message 1 to {last}); got {steps}")
 
 
 def check_case(case_dir, validator):
