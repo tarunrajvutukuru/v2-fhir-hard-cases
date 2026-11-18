@@ -105,8 +105,8 @@
           "pattern": "^([0-9]{6,18}|http://snomed\\.info/sct/[0-9]{6,18}(/version/[0-9]{8})?)$"
         },
         "scope": {
-          "description": "What was validated. 'bundle-and-entries': the Bundle including all its entries.",
-          "enum": ["bundle-and-entries"]
+          "description": "What was validated. 'bundle-and-entries': the Bundle including all its entries. 'end-states': for multi-message cases, the Encounters declared in accepted_end_states after each message; no Bundle is validated.",
+          "enum": ["bundle-and-entries", "end-states"]
         }
       }
     },
@@ -265,6 +265,10 @@
     {
       "if": {"properties": {"provenance": {"const": "scrubbed"}}, "required": ["provenance"]},
       "then": {"required": ["scrubbing_method"]}
+    },
+    {
+      "if": {"required": ["validation"], "properties": {"validation": {"required": ["scope"], "properties": {"scope": {"const": "end-states"}}}}},
+      "then": {"required": ["messages"]}
     }
   ]
 }
