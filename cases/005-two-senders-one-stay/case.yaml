@@ -15,10 +15,11 @@ notes: >-
   Second multi-message case, same shape as 004. It brings `linked_identifiers`
   back into the schema to say that the second sender's visit number must
   resolve to the same Encounter; the reconciliation rule states which
-  identifiers get linked and which do not. Only one accepted end state is declared. A second one, two
-  Encounters recorded as the same stay and both closed by the A03, may be
-  defensible, but the format has no way yet to say that two Encounters are
-  linked; that is a question for review, not something this case settles.
+  identifiers get linked and which do not. Only one accepted end state is
+  declared. A second one, two Encounters recorded as the same stay and both
+  closed by the A03, may be defensible, but the format has no way yet to say
+  that two Encounters are linked; that is a question for review, not something
+  this case settles.
   Both A01s carry the same PV1-44, so the size of the matching window is not
   exercised here; a variant with admit times a few minutes apart would test it.
 
